@@ -1,0 +1,17 @@
+Unnamed: 0,file_name,text,Total number of sentences,Number of sentences of initial prompt,Number of sentences completely authored by the user,Number of sentences completely authored by GPT-3,Number of sentences authored by GPT-3 and user,Total number of GPT-3 calls made,Number of times GPT-3 suggestion is used,Number of times user rejected GPT-3 suggestion,Number of times GPT-3 suggestion is modified,Number of times GPT-3 suggestion is used as is,GPT-3 : Total Sentences,User : Total Sentences,Amount of GTP-3 Usage,Type Token Ratio,pauses_over_10_sec,suggest_select_stage1,suggest_select_stage2,suggest_select_stage3,time_spent_mins,max_text,delete_count,suggest_select_stage1_perc,suggest_select_stage2_perc,suggest_select_stage3_perc,revision_rate
+371,ee27a30ee83c4349b80fc05e81c00a82.jsonl,"Are We Being Bad Citizens If We Don't Keep Up With the News?
+
+In your opinion, are we being bad citizens if we don't keep up with the news? Do you think all people have some responsibility to know what is going on in the world? Does engaging with current events actually do anything at all? Why do you think the way you do?
+
+---
+
+In my opinion, being updated with news is part of being a responsible citizen. Being aware of what is happening is necessary for us to be able to navigate through our lives in an informed fashion and to be able to come up with effective decisions when it comes to our lives.
+I think that all people have some responsibility to know what is going on in the world.
+  Not keeping up with news would lead to poor decisions that can affect people around us negatively in that we might not be able to make the right decisions when it comes to our lives.
+
+Engaging with current events will also give us the information we will need for most of the things we do. For example, we can track the traffic by monitoring the news; for people doing trading it is essential that they track current events specially on the trades they are planning to make for the day or the future. Also for people in the technology field, being aware of what is happening and being informed on the general state of the art would save them time in coming up with inventions that have already been solved.
+
+hy do I think the way I do?
+ That is because, I believe that being informed is the first step in making the right decisions, and that being informed would lead to a better future.  It would be appreciated in the long term, if we all keep up with the news. And maybe someday we will also be a part of the good things that we see in the news. 
+
+In conclusion, I think that it is our responsibility to keep up with the news. That way, we will be able to make informed decisions and we will be able to contribute to the betterment of our society. So what are you waiting for, go and read the news!",20,6,6,1,7,22,8,14,2,6,0.05,0.3,0.4,0.4103896103896104,4,1,1,6,12.024483333333333,1997,233,0.125,0.125,0.75,0.10448430493273543
