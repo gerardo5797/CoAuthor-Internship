@@ -1,7 +1,13 @@
 import os
 import time
-
 import nltk
+import re
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from collections import Counter
+from nltk.corpus import wordnet
+import spacy
+nlp = spacy.load("en_core_web_sm")
 import pandas as pd
 import altair as alt
 from utils_st import read_file
@@ -11,10 +17,8 @@ from summary_st import get_summary_stats, get_summary_stats2
 import streamlit as st
 from nltk.sentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
-import difflib
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.feature_extraction.text import TfidfVectorizer
-import numpy as np
 
 
 def generate_buffer(events):
@@ -175,6 +179,7 @@ def main():
     # Access the returned objects using indexing
     sentence_metrics = output[0]
     api_metrics = output[1]
+    #st.write(type(api_metrics))
     summary_df1 = output[2]
     summary_df1['file_name'] = selected_file
     #st.write(summary_df1)
@@ -203,7 +208,7 @@ def main():
         pauses_over_10_sec=('pause_num', lambda x: (x > 0).sum()),
         pause_burst=('pause_outburst', 'sum'),
         sentence_current=('last_sentence', 'last'),
-        time_spent=('time_dif_since_last_event', 'sum'),
+        time_spent=('time_dif_since_last_event', lambda x: round(x.sum() / 60, 2)),
         revisions=('revision_number', 'nunique')
     )
 
@@ -242,6 +247,8 @@ def main():
     # Compute the similarity scores for each suggestion
     best_suggestions = []
 
+    similarity_threshold = 0.6 #adjust threshold if needed, maximum 1 for exact match
+
     # Iterate over each row
     for idx, suggestions in enumerate(sentences_df['suggestions_get']):
         max_similarity = 0.0
@@ -251,8 +258,8 @@ def main():
         for suggestion in suggestions:
             similarity = cosine_similarity(sentence_vectors[idx], vectorizer.transform([suggestion]))[0][0]
 
-            # Update the best suggestion if the similarity score is higher
-            if similarity > max_similarity:
+            # Update the best suggestion if the similarity score is higher than the threshold
+            if similarity > max_similarity and similarity > similarity_threshold:
                 max_similarity = similarity
                 best_suggestion = suggestion
 
@@ -265,7 +272,7 @@ def main():
 
     ##
 
-    # DO sentiment analysis (Do cleaning/text processing in a future stage for better results)
+    # DO sentiment analysis
     analyzer = SentimentIntensityAnalyzer()
     sentences_df['sentiment'] = sentences_df['sentence_current'].apply(
         lambda x: analyzer.polarity_scores(x)['compound'])
@@ -401,7 +408,7 @@ def main():
     ).properties(
         width=200,
         height=200,
-        title='Counts of GPT-3 calls per Sentence (Accepted-Dismissed)'
+        title='GPT-3 calls per Sentence (Accepted-Dismissed)'
     )
 
     chart2 = alt.Chart(
@@ -414,7 +421,7 @@ def main():
     ).properties(
         width=200,
         height=200,
-        title='Counts of Accepted GPT-3 call per stage (modified and not-modified)'
+        title='Accepted GPT-3 call per stage (modified and not-modified)'
     )
 
     # Calculate the sums for each stage
@@ -551,7 +558,8 @@ def main():
     # Adjust the chart properties
     chart_pause1 = chart_pause1.properties(
         width=alt.Step(40),
-        height=400
+        height=400,
+        title = 'Pauses by stage'
     )
 
     mapping = {
@@ -614,11 +622,12 @@ def main():
     # Adjust the chart properties
     chart_pause3 = chart_pause3.properties(
         width=alt.Step(40),
-        height=400
+        height=400,
+        title = 'Pause length and burst by sentence'
     )
 
     # Calculate the total pauses duration and sentences with top 3 pause lengths
-    total_pauses_duration = bar_data_pause3['Pauses Length'].sum()
+    total_pauses_duration = round(bar_data_pause3['Pauses Length'].sum(), 2)
     top_sentences_pauses = bar_data_pause3.nlargest(3, 'Pauses Length')['Sentence Number'].tolist()
     # Generate the first sentence
     sentence_pauses2 = f"While you were writing (not during suggestions), you took pauses that lasted in total " \
@@ -715,6 +724,104 @@ def main():
     combined_chart = alt.hconcat(chart_rev1, chart_rev2)
 
     ##############################
+    # Get Additional summary statistics
+
+    # Get number of words and unique words in the text
+    last_text = event_seq_df['text_buffer'].iloc[-1]
+    word_count = int(len(last_text.split()))
+    unique_words = set(last_text.split())
+    unique_word_count = int(len(unique_words))
+
+    # Get time length, Total Pauses, Total Revisions for the exercise
+
+    number_of_pauses = int(sentences_df['pauses_over_10_sec'].sum())
+    time_spent = round(float(sentences_df['time_spent'].sum()), 2)
+    number_of_revisions = int(sentences_df['revisions'].sum())
+    average_time_sentence = round(sentences_df['time_spent'].sum() / len(sentences_df), 2),
+    words_sentence = round(word_count/len(sentences_df), 2)
+
+    ###
+
+
+
+    summary_3 = {
+        'Number of words': word_count,
+        'Number of Unique words': unique_word_count,
+        'Avg words per sentence': words_sentence
+
+    }
+
+    summary_4 = {
+        'Number of Pauses': number_of_pauses,
+        'Time spent (mins)': time_spent,
+        'Avg time per sentence (mins)': average_time_sentence,
+        'Number of revisions': number_of_revisions
+    }
+
+    #############
+    # Word Frequency
+    #############
+
+    stop_words = set(stopwords.words('english'))
+
+    def preprocess_text(text):
+        # Convert to lowercase
+        text = text.lower()
+
+        # Remove punctuation
+        text = re.sub(r'[^\w\s]', '', text)
+
+        # Tokenize the text
+        tokens = word_tokenize(text)
+
+        # Lemmatize the tokens
+        #lemmatizer = WordNetLemmatizer()
+        #lemmatized_tokens = [lemmatizer.lemmatize(token) for token in tokens]
+
+        # Remove stopwords
+        processed_tokens = [token for token in tokens if token not in stop_words]
+
+        return processed_tokens
+
+
+    # Preprocess the text and remove stopwords
+    processed_tokens = preprocess_text(last_text)
+
+    # Count word frequencies
+    word_freq = Counter(processed_tokens)
+
+    word_freq_df = pd.DataFrame.from_dict(word_freq, orient='index', columns=['Frequency'])
+    word_freq_df = word_freq_df.sort_values(by='Frequency', ascending=False)
+
+    # Add sentiment column
+    word_freq_df['Sentiment'] = word_freq_df.index.map(lambda word: TextBlob(word).sentiment.polarity)
+    word_freq_df['Sentiment'] = word_freq_df['Sentiment'].apply(
+        lambda sentiment: 'Positive' if sentiment > 0 else ('Negative' if sentiment < 0 else 'Neutral'))
+
+    # Add synonyms column
+
+    word_freq_df['Synonyms'] = word_freq_df.index.map(lambda word: set(syn.lemmas()[0].name().lower() for syn in wordnet.synsets(word) if
+                                                   syn.lemmas()[0].name().lower() != word.lower()))
+    word_freq_df.reset_index(inplace=True)
+    word_freq_df.rename(columns={'index': 'Word'}, inplace=True)
+
+    top_15_words = word_freq_df.sort_values(by='Frequency', ascending=False)
+    top_15_words = top_15_words.head(15)
+    top_15_words['Rank'] = range(1, 16)
+
+    freq_chart = alt.Chart(top_15_words).mark_bar().encode(
+        x='Frequency',
+        y=alt.Y('Word', sort=alt.EncodingSortField(field='Rank', order='ascending')),
+    ).properties(
+        width=350,
+        height=350,
+        title='Most Frequent Words in Your text'
+    )
+
+
+
+
+    ##############################
     # TEST APP
     ##############################
 
@@ -725,13 +832,14 @@ def main():
         f'the text, opening a suggestion and selecting it or dismissing it, are all counted '
         f'as events. As you can see, a lot of actions were taken to produce your text '
         f'( {len(events)} ).')
-    # Reproduce text
-    st.write('Take a look at some of the summary statistics from your text, this will give you an '
-             'initial idea of your writing process.')
+
 
     # Summary statistics
 
     st.header('Summary statistics')
+    st.write('Take a look at the summary statistics from your text, this will give you an '
+             'initial idea of your writing process.')
+
     # Create two columns with equal width
     col1, col2 = st.columns(2)
     # Display sentence_metrics in the first column
@@ -746,10 +854,23 @@ def main():
         for ele in api_metrics:
             st.write(ele, ":", api_metrics[ele])
 
+    # Display Additional metrics
+    with col1:
+        st.subheader("Word Metrics:")
+        for ele in summary_3:
+            st.write(ele, ":", summary_3[ele])
+
+    with col2:
+        st.subheader("Process Metrics:")
+        for ele in summary_4:
+            st.write(ele, ":", summary_4[ele])
+
     st.write("\n\n")
     st.write(
         'Before getting into further analysis, take some time to read your text from start to finish, and come with your own'
         ' conclusions about it, hover the sentences to get additional insights.')
+
+    # Reproduce text
 
     st.header('Final text')
     # play(buffer=text_buffer, speed="instant")
@@ -781,7 +902,7 @@ def main():
         time_spent = row['time_spent']
         revisions = row['revisions']
         sentiment = row['sentiment_label2']
-        last_sentence = row['sentence_current'] #Check this.
+        last_sentence = row['sentence_current']
 
         # Get the CSS style for the current authorship
         authorship_style = authorship_styles.get(authorship, '')
@@ -789,18 +910,47 @@ def main():
         # Use st.markdown to add interactive tags to the sentence with the CSS style
         st.markdown(
             f"<span title='Sentence #: {sentence}. Authorship: {authorship}. "
-            f"Time_spent = {time_spent}. Sentiment = {sentiment}. "
-            f"Pauses: {pauses}. pause_burst: {pause_burst}. revisions: {revisions}' "
+            f"Time spent minutes = {time_spent}. Sentiment = {sentiment}. "
+            f"Pauses: {pauses}. Pause Burst: {pause_burst}. Revisions: {revisions}' "
             f"style='{authorship_style}'>{last_sentence}</span>",
             unsafe_allow_html=True
         )
+
+    ######
+    # Show similarity suggestions - sentences
+    ######
+    similar_df = sentences_df[sentences_df['best_suggestion'].notnull()]
+    similar_df = similar_df[similar_df['best_suggestion'] != 'GPT-3 sentence']
+    similar_df = similar_df[['num_sent', 'sentence_current', 'best_suggestion']].rename(
+        columns={'best_suggestion': 'most_similar_suggestion_received'})
+
 
     st.header('Dashboard and Analysis')
     st.write('Now that you have read your text and have seen some insights about it, have you discovered '
              'anything interesting? Up next we will see different visualisations along with feedback '
              'to further explore your writing process.')
 
+    st.subheader('Most Frequent words in your text')
+    st.write('Here you can see the top 15 words appearing in your text, stopwords* have been removed. '
+             'Analyse if you are using certain words too much, and if you would like to make something '
+             'about it, or if it makes perfect sense because of your topic.')
+    st.write('stopwords: To see the words that have been classified as stopwords and were not '
+             'taken into account for the word frequency, go to the bottom of the dashboard.')
+    st.altair_chart(freq_chart, use_container_width=True)
+    st.write('Do you see any opportunity to make the vocabulary in your text more diverse, here are '
+             'some suggestions of words synonyms for each word on your text, along with the sentiment '
+             'associated to it. Please take into account the synonym generation is a work in progress '
+             'you might see some suggestions that do not make a lot of sense, but you will also see '
+             'some valuable ones, also think of other synonyms besides the suggeted ones if you want '
+             'to make edits to include a more diverse vocabulary.')
+    st.write(word_freq_df)
+
     st.subheader('Sentence Authorship')
+    st.write('The final version of your text is a combination of original ideas, and suggestions adopted '
+             'from GPT, collaborating with tools like GPT is extremely enrichening and can help you '
+             'get better results, but you dont want to rely to much into it, after all your text '
+             'should be authentic and a reflection of you as a writer, analyze this plot and the given '
+             'feedback and reflect on how happy you are with the collaboration process.')
     st.altair_chart(pie, use_container_width=True)
     st.write(sentence_pie)
 
@@ -809,12 +959,35 @@ def main():
     ###############################
 
     st.subheader('GPT-3 Suggestions Analysis')
+    st.write('Lets keep talking about collaboration. The timing of the suggestions request and the '
+             'edits you made to those suggestions can uncover a lot about your writing process. '
+             'Do you think you asked for too many suggestions? not enough? are you happy with how '
+             'much or how little you collaborated with GPT? Check the plots and feedback below and '
+             'reflect about your writing process. Go back to your full text to further analyze sentences '
+             'where you identified interesting insights.')
     # Display the chart in Streamlit
     st.altair_chart(alt.hconcat(chart1, chart2))
     st.write(sentence_call)
     st.write(sentence_modify)
 
+    # Similar suggestions
+    st.subheader('Sentence and Suggestions similarity')
+    st.write('From all your sentences, these are the ones where we find considerable similarities '
+             'with the suggestions you received (not only the ones you selected) along the exercise, '
+             'the sentences completely authored by GPT have been excluded, take a moment to analyse '
+             'how much you changed the suggestions and if you would like to make them more unique.')
+    st.write(similar_df)
+
     st.subheader('Pauses Analysis')
+    st.write('Pause can also tell a lot about your writing process, they can be associated with many '
+             'different factors or states of mind. Sometimes you just need a break, you can be reflecting '
+             'about what you have done, planning for what is to come, and much more. '
+             'While we cannot tell what you were exactly doing during the pauses you took in this exercise, '
+             'we can tell the text you produced between them and help you identify the moments were you took '
+             'them. Do you spot any sentence where you paused more than normal, go back to the full text '
+             'and try to remember if you were struggling with something or doing something in particular, '
+             'think is the pause helped you progress, and overall reflect on how much you need to take '
+             'time off to write efficiently. Pay particular atention to pause length and burst.')
     # Display charts side-by-side
     #col1, col2 = st.columns(2)  #
 
@@ -840,38 +1013,46 @@ def main():
 
     # Line chart revision
     st.subheader('Revision Analysis')
+    st.write('Revisions refer to moments where you took time to go back into previous sections of your '
+             'text, some reflections can be as short as correcting typos or changing a word, others can '
+             'include a high amount of changes either by adding, deleting or replacing text. Analyze '
+             'the sentences that required more revisions, during which time did you make most of them? '
+             'at the end? at the beginning? throughouth the whole exercise? ')
     # Use Streamlit to show chart_rev
     st.altair_chart(chart_revision)
     # Use Streamlit to show chart_rev2
     st.altair_chart(combined_chart)
 
-    st.write('#####DATA TO TEXT FEEDBACK/INSIGHTS')
+    st.write('Stopwords')
+    st.write(stop_words)
+
 
     # Delete
-    st.subheader('event_seq_df')
-    st.write(event_seq_df)
-    st.write(event_seq_df.index.nlevels)
-    st.write(event_seq_df.index.names)
-    st.subheader('author_sent_df')
-    st.write(author_sent_df)
-    st.subheader('sentences_df')
-    st.write(sentences_df)
-    st.subheader('event_seq_dict')
-    st.write(event_seq_dict)
-    st.subheader('dfe')
-    st.write(dfe)
-    st.subheader('summary_df1')
-    st.write(summary_df1)
-    st.subheader('summary_df2')
-    st.write(summary_df2)
-    st.subheader('summary_df_merged')
-    st.write(summary_df_merged)
-    st.subheader('dfe_exploded')
-    st.write(dfe_exploded)
-    st.subheader('counts')
-    st.write(counts)
-    st.subheader('output')
-    st.write(output)
+    #st.write(counts)
+    #st.subheader('event_seq_df')
+    #st.write(event_seq_df)
+    #st.write(event_seq_df.index.nlevels)
+    #st.write(event_seq_df.index.names)
+    #st.subheader('author_sent_df')
+    #st.write(author_sent_df)
+    #st.subheader('sentences_df')
+    #st.write(sentences_df)
+    #st.subheader('event_seq_dict')
+    #st.write(event_seq_dict)
+    #st.subheader('dfe')
+    #st.write(dfe)
+    #st.subheader('summary_df1')
+    #st.write(summary_df1)
+    #st.subheader('summary_df2')
+    #st.write(summary_df2)
+    #st.subheader('summary_df_merged')
+    #st.write(summary_df_merged)
+    #st.subheader('dfe_exploded')
+    #st.write(dfe_exploded)
+    #st.subheader('counts')
+    #st.write(counts)
+    #st.subheader('output')
+    #st.write(output)
 
 
 if __name__ == "__main__":
